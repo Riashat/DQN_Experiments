@@ -7,7 +7,6 @@ from utils import *
 from ReplayMemory import ReplayMemory
 from agents import AgentEpsGreedy
 from valuefunctions import ValueFunctionDQN
-from valuefunctions import ValueFunctionDQN3
 from lib import plotting
 
 
@@ -24,6 +23,11 @@ max_n_ep = 1000    #originally defined! Don't change this.
 min_avg_Rwd = 200000000  # Minimum average reward to consider the problem as solved
 n_avg_ep = 100      # Number of consecutive episodes to calculate the average reward
 
+
+
+"""
+SARSA with DQN Function Approximator
+"""
 
 def run_episode(env,
                 agent,
@@ -66,29 +70,45 @@ def run_episode(env,
         state_next, reward, done, info = env.step(action)
         total_reward += reward
 
+        #pick the next action : for SARSA, we need Q(s', a')
+        action_next = agent.act(state_next)
+
+
         if state_normalizer is not None:
             state_next = state_normalizer.transform(state_next)[0]
 
 
-        memory.add((state, action, reward, state_next, done))
+        memory.add((state, action, reward, state_next, action_next, done))
 
         if len(memory.memory) > batch_size:  # DQN Experience Replay
-            states_b, actions_b, rewards_b, states_n_b, done_b = zip(*memory.sample(batch_size))
+            states_b, actions_b, rewards_b, states_n_b, actions_n_b, done_b = zip(*memory.sample(batch_size))
             states_b = np.array(states_b)
             actions_b = np.array(actions_b)
             rewards_b = np.array(rewards_b)
             states_n_b = np.array(states_n_b)
+            actions_n_b = np.array(actions_n_b)
             done_b = np.array(done_b).astype(int)
+
+
 
             #agent arrives at next state s'
             #compute action values on the next state Q(s', a)
             q_n_b = agent.predict_q_values(states_n_b)  # Action values on the arriving state
 
+
+            q_s_a = q_n_b[actions_n_b]
+
+
+            # # #target for SARSA
+            targets_b = rewards_b + (1. - done_b) * discount * q_s_a[:, 0]
+
+
             #target - Q-learning here - taking max_a over Q(s', a)
-            targets_b = rewards_b + (1. - done_b) * discount * np.amax(q_n_b, axis=1)
+            # targets_b = rewards_b + (1. - done_b) * discount * np.amax(q_n_b, axis=1)
 
             #target function for the agent - predict based on the trained Q Network
             targets = agent.predict_q_values(states_b)
+
             for j, action in enumerate(actions_b):
                 targets[j, action] = targets_b[j]
 
@@ -98,12 +118,10 @@ def run_episode(env,
             loss_v, w1_m, w2_m, w3_m = agent.train(states_b, targets)
             train_duration_s[i - batch_size] = time.time() - t_train
 
-
-
         state = copy.copy(state_next)
+        action = copy.copy(action_next)
         step_durations_s[i] = time.time() - t  # Time elapsed during this step
         step_length = time.time() - t
-
 
 
     return loss_v, w1_m, w2_m, w3_m, total_reward, step_length
@@ -117,23 +135,14 @@ env = gym.make("CartPole-v0")
 n_actions = env.action_space.n
 state_dim = env.observation_space.high.shape[0]
 
-#using a smaller network for the value function
-value_function = ValueFunctionDQN3(state_dim=state_dim, n_actions=n_actions, batch_size=batch_size)
-
-#using a larger network for the value function
-#value_function = ValueFunctionDQN(state_dim=state_dim, n_actions=n_actions, batch_size=batch_size)
-
-
-
+value_function = ValueFunctionDQN(state_dim=state_dim, n_actions=n_actions, batch_size=batch_size)
 agent = AgentEpsGreedy(n_actions=n_actions, value_function_model=value_function, eps=0.1)
 memory = ReplayMemory(max_size=100000)
 
-
-max_n_ep = 2000      #number of episodes
+max_n_ep = 2000    #number of episodes
 #max_step - number of steps within an episode
 
-
-Experiments = 2
+Experiments = 1
 Experiments_All_Rewards = np.zeros(shape=(max_n_ep))
 
 
@@ -147,6 +156,7 @@ for e in range(Experiments):
     w2_m_per_ep = []
     w3_m_per_ep = []
     total_reward = []
+
 
 
     ep = 0
@@ -187,9 +197,11 @@ for e in range(Experiments):
     Experiments_All_Rewards = Experiments_All_Rewards + total_reward
     episode_length_over_time = stats.episode_lengths
 
-    np.save('/Users/Riashat/Documents/PhD_Research/BASIC_ALGORITHMS/My_Implementations/gym_examples/DQN_Experiments/Average_DQN_CartPole_V0_Results/All_Results_CartPole/'  + 'CartPole_V0_cumulative_reward_Q_Learning_DQN3' + 'Experiment_' + str(e) + '.npy', total_reward)
-    # np.save('/Users/Riashat/Documents/PhD_Research/BASIC_ALGORITHMS/My_Implementations/gym_examples/DQN_Experiments/Average_DQN_CartPole_V0_Results/All_Results_CartPole/'  + 'CartPole_V0_value_function_loss_Q_Learning_DQN3' + 'Experiment_' + str(e) + '.npy', loss_per_ep)
-    # np.save('/Users/Riashat/Documents/PhD_Research/BASIC_ALGORITHMS/My_Implementations/gym_examples/DQN_Experiments/Average_DQN_CartPole_V0_Results/All_Results_CartPole/'  + 'CartPole_V0_value_function_Episode_Length_Over_Time_Q_Learning_DQN3' + 'Experiment_' + str(e) + '.npy', episode_length_over_time)
+    np.save('/Users/Riashat/Documents/PhD_Research/BASIC_ALGORITHMS/My_Implementations/gym_examples/DQN_Experiments/Average_DQN_CartPole_V0_Results/All_Results_CartPole/'  + 'CartPole_V0_cumulative_reward_SARSA' + 'Experiment_' + str(e) + '.npy', total_reward)
+    np.save('/Users/Riashat/Documents/PhD_Research/BASIC_ALGORITHMS/My_Implementations/gym_examples/DQN_Experiments/Average_DQN_CartPole_V0_Results/All_Results_CartPole/'  + 'CartPole_V0_value_function_loss_SARSA' + 'Experiment_' + str(e) + '.npy', loss_per_ep)
+    np.save('/Users/Riashat/Documents/PhD_Research/BASIC_ALGORITHMS/My_Implementations/gym_examples/DQN_Experiments/Average_DQN_CartPole_V0_Results/All_Results_CartPole/'  + 'CartPole_V0_value_function_Episode_Length_Over_Time_SARSA' + 'Experiment_' + str(e) + '.npy', episode_length_over_time)
+
+
 
 
 env.close()
@@ -198,10 +210,10 @@ print('Saving Average Cumulative Rewards Over Experiments')
 
 Average_Cum_Rwd = np.divide(Experiments_All_Rewards, Experiments)
 
-np.save('/Users/Riashat/Documents/PhD_Research/BASIC_ALGORITHMS/My_Implementations/gym_examples/DQN_Experiments/Average_DQN_CartPole_V0_Results/All_Results_CartPole/'  + 'Average_Cum_Rwd_CartPole_V0_Q_Learning_DQN3' + '.npy', Average_Cum_Rwd)
+np.save('/Users/Riashat/Documents/PhD_Research/BASIC_ALGORITHMS/My_Implementations/gym_examples/DQN_Experiments/Average_DQN_CartPole_V0_Results/All_Results_CartPole/'  + 'Average_Cum_Rwd_CartPole_V0_SARSA' + '.npy', Average_Cum_Rwd)
 
 
-print "All Experiments DONE - Deep Q Learning"
+print "All Experiments DONE - SARSA"
 
 
 
@@ -216,5 +228,5 @@ plt.plot(eps[len(eps) - len(Rwd_avg):], Rwd_avg)
 plt.xlabel("Episode number")
 plt.ylabel("Reward per episode")
 plt.grid(True)
-plt.title("Total reward - Deep Q Learning")
+plt.title("Total reward - SARSA - DQN")
 
